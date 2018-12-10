@@ -15,7 +15,7 @@ from scipy.spatial import distance
 import json
 from metric_learn import mmc
 import numpy as np
-from pr_function import knn_classifier, kmeans_classifier
+from pr_function import knn_classifier, kmeans_classifier, compute_eigenspace
 
 # Load images data
 camId = np.array(loadmat('cuhk03_new_protocol_config_labeled.mat')['camId'].flatten())
@@ -51,13 +51,39 @@ gallery_label = labels[gallery_idx]
 train_data = features[train_idx,:]
 query_data = features[query_idx,:]
 gallery_data = features[gallery_idx,:]
-'''
-# Mahalonobis 
-maha_sup = mmc.MMC_Supervised(max_iter = 3, num_constraints = 1)
-maha_sup.fit(train_data, train_label)
+
+# PCA
+X_avg, A, e_vals, e_vecs = compute_eigenspace(train_data, "high")
+
+# Sort eigen vectors and eigen value in descending order
+idx=np.argsort(np.absolute(e_vals))[::-1]
+e_vals = e_vals[idx]
+e_vecs = (e_vecs.T[idx]).T
+
+m_vecs = e_vecs[:,0:50]
+train_pca = np.dot(train_data, m_vecs)
+query_pca = np.dot(query_data, m_vecs)
+gallery_pca = np.dot(gallery_data, m_vecs)
+
+# Mahalonobis
+print("Starting Mahalonobis")
+maha_sup = mmc.MMC_Supervised(max_iter = 100, num_constraints = 1)
+print("Starting fitting")
+maha_sup.fit(train_pca, train_label)
+print("Fuckin done")
 A = maha_sup.metric()
-query_trans = maha_sup.transform(query_data)
-gallery_trans = maha_sup.transform(gallery_data)
-  '''
-knn_score = knn_classifier(query_size, query_data, query_label,query_cam, gallery_size, gallery_data, gallery_cam, gallery_label)
-kmeans_score = kmeans_classifier(class_size, query_size, query_data, query_label, gallery_size, gallery_data, gallery_label )
+query_trans = maha_sup.transform(query_pca)
+gallery_trans = maha_sup.transform(gallery_pca)
+
+#Kernel
+
+
+# Rename for base line
+#query_trans = query_data
+#gallery_trans = gallery_data
+# Classification
+print("Starting classification")
+knn_score = knn_classifier(query_size, query_trans, query_label,query_cam, gallery_size, gallery_trans, gallery_cam, gallery_label)
+kmeans_score = kmeans_classifier(class_size, query_size, query_trans, query_label, gallery_size, gallery_trans, gallery_label )
+
+
