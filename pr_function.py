@@ -27,7 +27,7 @@ def compute_eigenspace(X_data, mode):
         e_vals, e_vecs = np.linalg.eig(S)
         e_vecs = np.dot(A,e_vecs)
         e_vecs = e_vecs / np.linalg.norm(e_vecs, axis=0)
-    return X_avg, A, e_vals, e_vecs
+    return A, e_vals, e_vecs
 
 def plot_image(face_vector, w, h, filename):
     # Reshape the given image data, plot the image
@@ -42,7 +42,7 @@ def plot_image(face_vector, w, h, filename):
     return
 
 def plot_graph(type, eig_value, i, x, y, xtick, ytick, filename):
-    # Plot the first i eigenvalues
+    # Plot the first i eigenvalues only integer scalar arrays can be converted to a scalar index
     fig = plt.figure()
     ax = fig.add_subplot(111)
     if type == "bar":
@@ -57,23 +57,29 @@ def plot_graph(type, eig_value, i, x, y, xtick, ytick, filename):
     return
 
 # KNN
-def knn_classifier(query_size, query_data, query_label,query_cam, gallery_size, gallery_data, gallery_cam, gallery_label):
+def knn_classifier(rank, query_size, query_data, query_label,query_cam, gallery_size, gallery_data, gallery_cam, gallery_label):
     score = 0
+    mAP = 0
     for q in range(query_size):
         cam_idx = [ idx for idx in range(gallery_size) if not( gallery_cam[idx] == query_cam[q] and gallery_label[idx] == query_label[q] )]    
         gallery_data_cam = gallery_data[cam_idx,:]
         gallery_label_cam = gallery_label[cam_idx]
         l2 = np.linalg.norm( (gallery_data_cam - query_data[q,:] ), ord=2, axis = 1)
-        k_idx = np.argsort(l2)[:1]
-        if gallery_label_cam[k_idx] == query_label[q]:
+        k_idx = np.argsort(l2)[:rank]
+        ap = 0
+        for idx in k_idx:
+            if gallery_label_cam[idx] == query_label[q]:
+                ap = ap + 1
+        if ap > 0:
             score = score + 1
-    score = score/query_size
-    print('knn_score = ', score)
+        mAP = mAP + ap / rank
+    print('knn_score = ', score / query_size)
+    print('mAP = ', mAP / query_size)
     return score
 
 # Kmeans
 def kmeans_classifier(class_size, query_size, query_data, query_label, gallery_size, gallery_data, gallery_label ):
-    kmeans = KMeans(n_clusters=class_size, random_state=300).fit(gallery_data)
+    kmeans = KMeans(n_clusters=class_size, random_state=10).fit(gallery_data)
     cluster_idx = kmeans.labels_
     cluster_labels = np.zeros(class_size)
     for k in range(class_size):
