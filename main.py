@@ -11,6 +11,7 @@ import json
 from metric_learn import mmc, mlkr
 import numpy as np
 from pr_function import knn_classifier, kmeans_classifier, compute_eigenspace
+
 #-------------------------------------------------------------------------------------
 # Load images data
 camId = np.array(loadmat('cuhk03_new_protocol_config_labeled.mat')['camId'].flatten())
@@ -46,11 +47,12 @@ gallery_label = labels[gallery_idx]
 train_data = features[train_idx,:]
 query_data = features[query_idx,:]
 gallery_data = features[gallery_idx,:]
+
 #-------------------------------------------------------------------------------------
 M = 35
-rank = 4
-itr = 100
+rank = 1
 
+'''
 # PCA
 A_train, e_vals, e_vecs = compute_eigenspace(train_data, "high")
 idx=np.argsort(np.absolute(e_vals))[::-1]
@@ -58,17 +60,25 @@ e_vals = e_vals[idx]
 e_vecs = (e_vecs.T[idx]).T
 m_vecs = e_vecs[:,0:M]
 train_pca = np.dot(train_data, m_vecs)
+
+
+#N, D = query_data.shape
+#X_avg = query_data.mean(0)
+#X_avgm = np.array([X_avg]*N)
+#A_query = (query_data - X_avgm).T
 query_pca = np.dot(query_data, m_vecs)
+
+#N, D = gallery_data.shape
+#X_avg = gallery_data.mean(0)
+#X_avgm = np.array([X_avg]*N)
+#A_gallery = (gallery_data - X_avgm).T
 gallery_pca = np.dot(gallery_data, m_vecs)
-'''
-# Mahalonobis
-print("Final Mahalonobis started...")
-maha_sup = mmc.MMC_Supervised(max_iter = itr, num_constraints = 1)
-maha_sup.fit(train_data, train_label)
-print("Fuckin done")
-query_trans = maha_sup.transform(query_data)
-gallery_trans = maha_sup.transform(gallery_data)
-'''
+
+
+#Rename for base line
+query_trans = query_data
+gallery_trans = gallery_data
+
 # Kernel
 print("Final Kernel started...")
 kern = mlkr.MLKR(max_iter = itr)
@@ -76,19 +86,26 @@ kern.fit(train_pca, train_label)
 query_trans = kern.transform(query_pca)
 gallery_trans = kern.transform(gallery_pca)
 
-#Rename for base line
-#query_trans = query_pca
-#gallery_trans = gallery_pca
-test_knn_score = knn_classifier(rank, query_size, query_trans, query_label, query_cam, gallery_size, gallery_trans, gallery_cam, gallery_label)
+# Mahalonobis e_vals,
+print("Starting Mahalonobis")
+maha_sup = mmc.MMC_Supervised(max_iter = 100, num_constraints = 100)
+print("Starting fitting")
+maha_sup.fit(train_pca, train_label)
+A = maha_sup.metric()
+query_trans = maha_sup.transform(query_pca)
+gallery_trans = maha_sup.transform(gallery_pca)
+        
+test_knn_score, test_mAP_score = knn_classifier(rank, query_size, query_trans, query_label, query_cam, gallery_size, gallery_trans, gallery_cam, gallery_label)
 test_kmeans_score = kmeans_classifier(class_size, query_size, query_trans, query_label, gallery_size, gallery_trans, gallery_label )
-
-#-------------------------------------------------------------------------------------
 '''
+#-------------------------------------------------------------------------------------
+
 label_trunc = np.unique(train_label)
 val_num = 7
-print("Validation started...")
-itr = [1, 3]
+print("starting validation started...")
+itr = [1, 10]
 val_knn_score = np.zeros((len(itr), val_num))
+val_mAP_score = np.zeros((len(itr), val_num))
 val_kmean_score = np.zeros((len(itr), val_num))
 for v in range(val_num):
     # Non replace selection of validation set
@@ -122,37 +139,53 @@ for v in range(val_num):
     e_vecs = (e_vecs.T[idx]).T
     m_vecs = e_vecs[:,0:M]
     train_pca = np.dot(val_train_data, m_vecs)
+    
+    
+    #N, D = query_data.shape
+    #X_avg = query_data.mean(0)
+    #X_avgm = np.array([X_avg]*N)
+    #A_query = (query_data - X_avgm).T
     query_pca = np.dot(val_query_data, m_vecs)
+    
+    #N, D = gallery_data.shape
+    #X_avg = gallery_data.mean(0)
+    #X_avgm = np.array([X_avg]*N)
+    #A_gallery = (gallery_data - X_avgm).T
     gallery_pca = np.dot(val_gallery_data, m_vecs)
     
     for r in range(len(itr)):
-        
-        #Mahalonobis
+        # Mahalonobis e_vals,
+        #print("Starting Mahalonobis")
         maha_sup = mmc.MMC_Supervised(max_iter = itr[r], num_constraints = 20)
+        #print("Starting fitting")
         maha_sup.fit(train_pca, val_train_label)
+        A = maha_sup.metric()
         query_trans = maha_sup.transform(query_pca)
         gallery_trans = maha_sup.transform(gallery_pca)
         
-        #Kernel
+        # Kernel
+        print("Final Kernel started...")
         kern = mlkr.MLKR(max_iter = itr[r])
-        kern.fit(train_pca, val_train_label)
+        kern.fit(train_pca, train_label)
         query_trans = kern.transform(query_pca)
         gallery_trans = kern.transform(gallery_pca)
+
         
         # Classification
-        #knn_score = knn_classifier(rank, val_query_size, query_trans, val_query_label, val_query_cam, val_gallery_size, gallery_trans, val_gallery_cam, val_gallery_label)
-        kmeans_score = kmeans_classifier(100, val_query_size, query_trans, val_query_label, val_gallery_size, gallery_trans, val_gallery_label )
-        #val_knn_score[r,v] = knn_score
-        val_kmean_score[r,v] = kmeans_score
-    print("Fuckin done")
+        knn_score, mAP_score = knn_classifier(rank, val_query_size, query_trans, val_query_label, val_query_cam, val_gallery_size, gallery_trans, val_gallery_cam, val_gallery_label)
+        #kmeans_score = kmeans_classifier(100, val_query_size, query_trans, val_query_label, val_gallery_size, gallery_trans, val_gallery_label )
+        val_knn_score[r,v] = knn_score
+        val_mAP_score[r,v] = mAP_score
+        #val_kmean_score[r,v] = kmeans_score
+        print("Fuckin done")
 
+val_kmean_score = np.mean(val_kmean_score, axis = 1)
+val_knn_score = np.mean(val_knn_score, axis = 1)
+val_mAP_score = np.mean(val_mAP_score, axis = 1)
+opt_itr = itr[np.argmax(val_kmean_score)]
+#opt_itr = itr[np.argmax(val_knn_score)]
+#opt_itr = itr[np.argmax(val_mAP_score)]
 
-#val_score = np.mean(val_knn_score, axis = 1)
-#opt_itr = itr[np.argmax(val_score)]
-val_score = np.mean(val_kmean_score, axis = 1)
-opt_itr = itr[np.argmax(val_score)]
-
-print("Final test started...")
 # PCA
 A_train, e_vals, e_vecs = compute_eigenspace(train_data, "high")
 idx=np.argsort(np.absolute(e_vals))[::-1]
@@ -160,19 +193,29 @@ e_vals = e_vals[idx]
 e_vecs = (e_vecs.T[idx]).T
 m_vecs = e_vecs[:,0:M]
 train_pca = np.dot(train_data, m_vecs)
-query_pca = np.dot(query_data, m_vecs)
-gallery_pca = np.dot(gallery_data, m_vecs)
 
-'''
-'''
-# Mahalonobis
-print("Final Mahalonobis started...")
+
+#N, D = query_data.shape
+#X_avg = query_data.mean(0)
+#X_avgm = np.array([X_avg]*N)
+#A_query = (query_data - X_avgm).T
+query_pca = np.dot(query_data, m_vecs)
+
+#N, D = gallery_data.shape
+#X_avg = gallery_data.mean(0)
+#X_avgm = np.array([X_avg]*N)
+#A_gallery = (gallery_data - X_avgm).T
+gallery_pca = np.dot(gallery_data, m_vecs)
+# Mahalonobis e_vals,
+print("Starting Mahalonobis")
 maha_sup = mmc.MMC_Supervised(max_iter = opt_itr, num_constraints = 1)
+print("Starting fitting")
 maha_sup.fit(train_pca, train_label)
+print("Fuckin done")
+A = maha_sup.metric()
 query_trans = maha_sup.transform(query_pca)
 gallery_trans = maha_sup.transform(gallery_pca)
-'''
-'''k
+
 # Kernel
 print("Final Kernel started...")
 kern = mlkr.MLKR(max_iter = opt_itr)
@@ -181,9 +224,6 @@ query_trans = kern.transform(query_pca)
 gallery_trans = kern.transform(gallery_pca)
 
 # Classification
-print("Final classification started...")
-#test_knn_score = knn_classifier(rank, query_size, query_trans, query_label, query_cam, gallery_size, gallery_trans, gallery_cam, gallery_label)
-test_kmeans_score = kmeans_classifier(class_size, query_size, query_trans, query_label, gallery_size, gallery_trans, gallery_label )
-'''
-        
-    
+print("Starting classification")
+test_knn_score, test_mAP_score = knn_classifier(rank, query_size, query_trans, query_label, query_cam, gallery_size, gallery_trans, gallery_cam, gallery_label)
+#test_kmeans_score = kmeans_classifier(class_size, query_size, query_trans, query_label, gallery_size, gallery_trans, gallery_label )
